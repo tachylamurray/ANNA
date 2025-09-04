@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"/><title>STLC Orchestrator</title><style>body{font-family:Inter,system-ui,Arial;margin:40px;max-width:960px}.row{display:flex;gap:8px}input{flex:1;padding:10px}button{padding:10px 14px}pre{background:#111;color:#eee;padding:16px;border-radius:8px;white-space:pre-wrap}.section{margin-top:16px;padding:12px;border:1px solid #ddd;border-radius:8px}h3{margin:4px 0 8px 0}</style></head>
+<body>
+<h2>Quality Blueprint STLC Automation</h2>
+<div class="row"><input id="jira" placeholder="Paste Jira URL..."/><button id="go">Run</button></div>
+<div id="trace" class="section">Paste a Jira URL and press Run.</div>
+<pre id="out">Waiting...</pre>
+<script>
+  const $ = (s) => document.querySelector(s);
+  
+  $('#go').onclick = async () => {
+    const url = $('#jira').value.trim();
+    $('#out').textContent = 'Running...';
+    const r = await fetch('/api/orchestrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requirement_link: url })
+    });
+    const j = await r.json();
+    $('#out').textContent = JSON.stringify(j, null, 2);
+    render(j);
+  };
+  
+  function groupByCategory(cases) {
+    return cases.reduce((acc, tc) => {
+      const key = tc.category || 'uncategorized';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(tc);
+      return acc;
+    }, {});
+  }
+  
+  function TestItem(tc) {
+    return '<li><b>' + tc.id + '</b> - ' + tc.title + ' (' + tc.type + ')</li>';
+  }
+  
+  function CategoryPanel(name, items) {
+    const pretty = name.toUpperCase();
+    const count = items.length;
+    return (
+      '<details class="section">' +
+      '<summary><b>' + pretty + '</b> (' + count + ')</summary>' +
+      '<ol style="margin-top:8px">' + items.map(TestItem).join('') + '</ol>' +
+      '</details>'
+    );
+  }
+  
+  function render(data){
+    const cases = data.generated_test_cases || [];
+    const automation = data.automation_code || {};
+    const q = data.qmetry_payloads || {};
+    const results = data.execution_results || [];
+  
+    const grouped = groupByCategory(cases);
+    const categoryOrder = [
+      'unit','integration','functional','e2e',
+      'positive','negative','edge-case','security',
+      'performance','smoke','regression'
+    ];
+    const orderedPanels = categoryOrder
+      .filter(cat => grouped[cat]?.length)
+      .map(cat => CategoryPanel(cat, grouped[cat]));
+    const otherPanels = Object.keys(grouped)
+      .filter(cat => !categoryOrder.includes(cat))
+      .map(cat => CategoryPanel(cat, grouped[cat]));
+  
+    const testCasesSection =
+      '<div class="section">' +
+      '<h3>Test Cases</h3>' +
+      orderedPanels.join('') +
+      otherPanels.join('') +
+      '</div>';
+  
+    const html =
+      '<div class="section"><h3>Requirement</h3>' +
+      '<div><b>Link</b>: <a href="' + (data.requirement_link || '#') + '" target="_blank">' + (data.requirement_link || '') + '</a></div>' +
+      '<div><b>Summary</b>: ' + (data.requirement_summary||'') + '</div></div>' +
+      testCasesSection +
+      '<div class="section"><h3>Automation Code</h3><div><b>Framework</b>: ' + (automation.framework||'') + '</div><pre>' + (automation.code||'') + '</pre></div>' +
+      '<div class="section"><h3>Qmetry</h3><div><b>Dry Run</b>: ' + (q.dry_run ? 'true' : 'false') + '</div></div>' +
+      '<div class="section"><h3>Execution Results</h3><ul>' + results.map(x => { const k=Object.keys(x)[0]; return '<li>'+k+': '+x[k]+'</li>'; }).join('') + '</ul></div>';
+  
+    $('#trace').innerHTML = html;
+  }
+  </script>
+</body></html>
